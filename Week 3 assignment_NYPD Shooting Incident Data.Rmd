@@ -1,0 +1,186 @@
+---
+title: "Week 3 assignment_NYPD Shooting Incident Data"
+date: "2022-12-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1 - Identify and import the data
+
+I will first start by reading in the data from the NYPD Shooting Incident Data csv file.
+
+```{r get_nydp_data}
+## Prepare the necessary libraries for the analysis
+library(tidyverse)
+library(lubridate)
+## Get the NYDP shooring incident data from the csv file
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+```
+
+Now, let's read in the data and see what we have
+```{r import_data}
+## Read csv file to R
+NYDP <- read_csv(url)
+## First preview the original version of the data
+NYDP
+```
+
+## Step 2 - Tidy and Transform Data
+
+After looking at the NYDP data file, I would like to tidy the dataset and put each variable in their own column. Also, I don't need the other columns for my coming analysis,so I will remove those columns and keep only the columns that I need: OCCUR_DATE, BORO,VIC_AGE_GROUP,VIC_SEX,VIC_RACE.
+
+```{r cleaning_columns}
+NYDP <- NYDP %>%
+  select(c(OCCUR_DATE, BORO,VIC_AGE_GROUP,VIC_SEX,VIC_RACE))
+```
+
+
+Now, I would like to reformat my OCCUR_DATE to a date format column instead of being a character column like in the original format.
+```{r reformat_OCCUR_DATE}
+NYDP2 <- NYDP %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+NYDP2
+```
+Do a summary of NYDP data
+```{r data_summary}
+summary(NYDP2)
+```
+
+## Step 3 - Add Visualizations and Analysis
+
+### Visualization 1
+
+Now, I would like to group by data for my first analysis. I would like to see the number of victim by gender for the year of 2021. So I will summarize and group my table to form a data set with OCCUR_DATE, Victim_Sex and number of victim cases.
+
+```{r viz_1_working}
+#group and summarize the data for Viz_1
+viz_1 <- NYDP2 %>%
+  group_by(OCCUR_DATE,VIC_SEX) %>%
+  summarize(number_of_case = n()) %>%
+  select(OCCUR_DATE,VIC_SEX,number_of_case) %>%
+  ungroup()
+## Preview the grouped and summarize data for Viz_1
+viz_1
+tail(viz_1)
+```
+
+```{r viz_1_plot}
+## Pivot VIC_SEX from rows to columns
+viz_1_pivot <- viz_1 %>% 
+    tidyr::spread(key = VIC_SEX,value = number_of_case)
+
+##rename the columns
+colnames(viz_1_pivot)[2] = "Female"
+colnames(viz_1_pivot)[3] = "Male"
+colnames(viz_1_pivot)[4] = "Undefined"
+
+plot_1 <- viz_1_pivot %>%
+  ggplot(aes(x=OCCUR_DATE, y = Female)) +
+  geom_line(aes(color = "Female")) +
+  geom_point(aes(color = "Female")) +
+  geom_line(aes(y = Male, color = "Male")) +
+  geom_point(aes(y = Male, color = "Male")) +
+  scale_x_date(limits = as.Date(c('2021-01-01','2021-12-31')))+
+  labs(title =str_c("2021 number of victims by gender"), y= "Number of Victims")
+
+suppressWarnings(print(plot_1))
+```
+
+From the above plot of my first visualization (viz_1_pivot), I see the following observations: 
+
+* The number of Males being a victim is larger than Females.
+* Almost at each single day during the year 2021, there are Males being victims of a crime. But this is not the case for Females, as we see the orange line for Females is not continuous throughout the year.
+* More Female victims are observed from approximately June to August.
+* The day with the highest number of Male victims occurred in May.
+
+
+### Visualization 2
+
+For the second visualization, I would like to do an analysis for the number of victims by Boros.
+
+```{r Viz_2_working}
+#group and summarize the data for Viz_2
+viz_2 <- NYDP2 %>%
+  group_by(OCCUR_DATE,BORO) %>%
+  summarize(boro_case = n()) %>%
+  select(OCCUR_DATE,BORO,boro_case) %>%
+  mutate(Year = year(OCCUR_DATE)) %>%
+  ungroup()
+## Preview the grouped and summarize data for Viz_1
+viz_2_pivot <- viz_2 %>%
+  group_by(Year,BORO) %>%
+  select(Year,BORO,boro_case) %>%
+  summarize(boro_case = sum(boro_case)) %>%
+  ungroup()
+viz_2_pivot
+tail(viz_2_pivot)
+```
+
+```{r plot_2}
+plot_2 <- ggplot(data=viz_2_pivot, aes(x=Year, y=boro_case, fill=BORO)) +
+  geom_bar(stat="identity") +
+  labs(title =str_c("Number of victims by Boro 2006-2021"), y= "Number of Victims")
+plot_2
+```
+
+From my second visualization created above, I see the following observations:
+
+* In the period from 2006 to 2021, the total numbers of victims for all five Boros reach its minimum at the year of 2017, 2018, 2019.
+* Throughout the years from 2006 to 2021, Brooklyn is the Boro that has the most number of victims.
+* The Boro with the least total number of victims is Staten Island from every year of 2006-2021.
+* During this time series of 16 years from 2006-2021, Bronx is the second highest boro in terms of the number of victims.
+* During the time series, Manhattan and Queens Boros are having relatively close number of total victims for each of the Boros, with Queens slightly higher than Manhattan.
+
+
+### Create data model
+
+```{r model}
+mod_data <- viz_2_pivot %>%
+  group_by(Year) %>%
+  summarize(total_vic_cases = sum(boro_case)) %>%
+  select(Year,total_vic_cases) %>%
+  ungroup()
+mod_data
+mod <- lm(total_vic_cases~Year,data=mod_data)
+summary(mod)
+```
+```{r}
+x_grid <- seq(2006,2021)
+new_df <- tibble(Year = x_grid)
+mod_est <- mod_data %>% mutate(pred=predict(mod))
+mod_est
+```
+
+```{r model_plot}
+mod_est %>% ggplot() +
+  geom_point(aes(x=Year, y=total_vic_cases),color="blue")+
+  geom_point(aes(x=Year, y=pred),color="red") +
+  labs(title =str_c("Prediction for Total number of victims through Year time sequence"))
+```
+From the above plot, we see that the red dots represent the predicted model and the blue dots represent the actual numbers of victims. I am trying to predict the number of total victims in time sequence of the years. This is a straight-forward and simple model. I see that this model somehow predicted the decrease from 2006 to 2015, but it seems that it cannot reflect the increase after 2020. So definitely, the year factor is not sufficient to construct a complete model as we see that the p-value for year is not significantly small. So, to improve this model, I would suggest to add more parameters in the factors for this model and need to investigate further, whether this model would be a linear model or maybe a quadratic model would perform better for the prediction.
+
+
+## Step 4 - Add Bias Identification
+
+```{r viz_1_eg}
+viz_3_pivot <- viz_1_pivot %>%
+  group_by(OCCUR_DATE,Undefined) %>%
+  select(OCCUR_DATE,Undefined) %>%
+  summarize(Undefined = sum(Undefined)) %>%
+  ungroup()
+viz_4_pivot <- viz_3_pivot %>%
+  group_by(Undefined) %>%
+  select(Undefined) %>%
+  summarize(abc=sum(!is.na(Undefined))) %>%
+  ungroup()
+viz_4_pivot
+```
+
+For my analysis, I think the bias would come from the data source level. I observed that in the Vic_sex column, there is a category "Undefined". From the above queries, I see there are 11 victims that are classified neither to be female nor male, but they fall into the category of Undefined. I am not sure what is the reason for these 11 people to be undefined (maybe for any political or humanity issues for not disclose victim's detail information). So this makes me thinking and questioning about the precision of my study if I do my analysis based on Gender. Another of my question is, I noticed there are many fields that are NA in the columns for perpetrator's related information. If I wish to do an analysis to see the detection rate (for how many crimes the police has successfully detected a perpetrator and how many the police did not find), this data brings me the doubt, whether the rows without perpetrator are really unsolved cases or because the perpetrator's information cannot be disclosed to the public due to data confidentiality. If this is the case, then using this data set to conduct an analysis on detective rate would be biased.
+
+
+```{r session_info}
+sessionInfo()
+```
